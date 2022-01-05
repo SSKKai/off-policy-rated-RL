@@ -138,8 +138,8 @@ class OPRRL(object):
             if i_episode > self.sac_hyparams.max_episodes:
                 break
             
-            if i_episode % 200 == 0:
-                self.agent.save_model(env_name='Ant_v3', suffix=str(int(episode_reward)))
+            # if i_episode % 200 == 0:
+            #     self.agent.save_model(env_name='Ant_v3', suffix=str(int(episode_reward)))
             
             if i_episode % 500 == 0:
                 self.reward_network.save_reward_model(env_name="Ant_v3", version=str(int(episode_reward)))

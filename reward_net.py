@@ -210,22 +210,22 @@ class RewardNetwork(object):
             else:
                 batch_size = 32
                 
-            # while len(index_list) < batch_size:
-            #     index = random.sample(range(len(self.ranked_trajs)),2)
-            #     index.sort()
-            #     if index not in index_list:
-            #         if abs(self.ranked_labels[index[0]]-self.ranked_labels[index[1]]) < 1 or random.random()>0.8:
-            #             index_list.extend([index])
-            
             while len(index_list) < batch_size:
-                index = random.sample(range(len(self.ranked_trajs)),1)
-                index_2 = random.sample(range(len(self.ranked_trajs)),1)
-                while abs(self.ranked_labels[index[0]]-self.ranked_labels[index_2[0]])>1 and random.random()<0.8:
-                    index_2 = random.sample(range(len(self.ranked_trajs)),1)
-                index.extend(index_2)
+                index = random.sample(range(len(self.ranked_trajs)),2)
                 index.sort()
                 if index not in index_list:
-                    index_list.extend([index])
+                    if abs(self.ranked_labels[index[0]]-self.ranked_labels[index[1]]) < 1 or random.random()>0.8:
+                        index_list.extend([index])
+            
+            # while len(index_list) < batch_size:
+            #     index = random.sample(range(len(self.ranked_trajs)),1)
+            #     index_2 = random.sample(range(len(self.ranked_trajs)),1)
+            #     while abs(self.ranked_labels[index[0]]-self.ranked_labels[index_2[0]])>1 and random.random()<0.8:
+            #         index_2 = random.sample(range(len(self.ranked_trajs)),1)
+            #     index.extend(index_2)
+            #     index.sort()
+            #     if index not in index_list:
+            #         index_list.extend([index])
                 
             
             traj_list_1 = []

@@ -213,5 +213,5 @@ if __name__ == '__main__':
     
     oprrl = OPRRL(sac_hyperparams, reward_hyperparams)
     #oprrl.agent.load_model('models/sac_actor_Ant_v3_4957', 'models/sac_critic_Ant_v3_4957')
-    oprrl.reward_network.load_reward_model(reward_path='reward_models/3/reward_model_Ant_v3_2472') #4177
+    oprrl.reward_network.load_reward_model(reward_path='reward_models/reward_model_Ant_v3_3230') #4177
     oprrl.train()
