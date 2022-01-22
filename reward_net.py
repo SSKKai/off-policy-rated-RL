@@ -29,7 +29,7 @@ class Reward_Net(nn.Module):
 
 
 class RewardNetwork(object):
-    def __init__(self, state_dim, action_dim, args):
+    def __init__(self, state_dim, action_dim, episode_length, args):
         self.device = device
         
         self.state_only = args.state_only
@@ -38,10 +38,10 @@ class RewardNetwork(object):
         self.new_reward_traj = True
         
         
-        
         self.traj_capacity = args.traj_capacity
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.episode_length = episode_length
         
         self.num_to_rank = args.num_to_rank
         
@@ -82,7 +82,7 @@ class RewardNetwork(object):
         if done:
             self.new_trajectory = True
             ################## temp ######################
-            if len(self.buffer[-1]) < 1000:
+            if len(self.buffer[-1]) < self.episode_length:
                 del self.buffer[-1]
             ###############################################
             if len(self.buffer) > self.traj_capacity:
@@ -100,7 +100,7 @@ class RewardNetwork(object):
         if done:
             self.new_reward_traj = True
             ################## temp ######################
-            if len(self.true_reward_buffer[-1]) < 1000:
+            if len(self.true_reward_buffer[-1]) < self.episode_length:
                 del self.true_reward_buffer[-1]
             ###############################################
             if len(self.true_reward_buffer) > self.traj_capacity:
@@ -147,12 +147,21 @@ class RewardNetwork(object):
             for i in range(self.num_to_rank):
                 total_reward = sum(self.true_reward_buffer[rank_index[i]])
                 
-                if total_reward <= -1500:
+                # if total_reward <= -1500:
+                #     rank = 0
+                # elif -1500 < total_reward <= 0:
+                #     rank = 2*(total_reward+1500)/1500
+                # elif total_reward > 0:
+                #     rank = 2 + 8*total_reward/5000
+                #     if rank > 10:
+                #         rank = 10
+                
+                if total_reward/self.episode_length <= -1.5:
                     rank = 0
-                elif -1500 < total_reward <= 0:
-                    rank = 2*(total_reward+1500)/1500
+                elif -1.5 < total_reward/self.episode_length <= 0:
+                    rank = 2*(total_reward/self.episode_length+1.5)/1.5
                 elif total_reward > 0:
-                    rank = 2 + 8*total_reward/5000
+                    rank = 2 + 8*(total_reward/self.episode_length)/5
                     if rank > 10:
                         rank = 10
                 
@@ -278,6 +287,43 @@ class RewardNetwork(object):
             self.reward_network.load_state_dict(torch.load(reward_path))
         else:
             print('fail to load reward network, please enter the reward path')
+    
+    
+    def save_trajs(self, env_name, version, trajs_path=None, labels_path=None, num_to_sample = 20):
+        if not os.path.exists('saved_trajs/'):
+            os.makedirs('saved_trajs/')
+        
+        if trajs_path is None:
+            trajs_path = "saved_trajs/trajs_{}_{}.npy".format(env_name, version)
+        if labels_path is None:
+            labels_path = "saved_trajs/labels_{}_{}.npy".format(env_name, version)
+        
+        index = random.sample(range(len(self.ranked_trajs)), num_to_sample)
+        
+        save_trajs = [self.ranked_trajs[idx] for idx in index]
+        save_labels = [self.ranked_labels[idx] for idx in index]
+        save_trajs = np.array(save_trajs)
+        save_labels = np.array(save_labels)
+        
+        label_order = np.argsort(save_labels)
+        save_labels.sort()
+        save_trajs = save_trajs.take(label_order, axis=0)
+        
+        np.save(trajs_path, save_trajs)
+        np.save(labels_path, save_labels)
+    
+    def test_reward_model(self, trajs_path, labels_path):
+        
+        trajs = np.load(trajs_path)
+        labels = np.load(labels_path)
+        
+        rewards = self.reward_network(torch.from_numpy(trajs).float().to(self.device))
+        rewards = rewards.sum(axis=1)
+        rewards = rewards.detach().cpu().numpy()
+        
+        return rewards, labels
+        
+        
 
 
 

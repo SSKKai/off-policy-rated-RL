@@ -37,7 +37,7 @@ class OPRRL(object):
         self.agent_memory = ReplayMemory(sac_hyperparams.replay_size, sac_hyperparams.seed)
         
         # Reward Net
-        self.reward_network = RewardNetwork(self.state_dim, self.action_dim.shape[0], args = reward_hyperparams)
+        self.reward_network = RewardNetwork(self.state_dim, self.action_dim.shape[0], self.env._max_episode_steps, args = reward_hyperparams)
         
         # Training Loop
         self.total_numsteps = 0
@@ -75,7 +75,7 @@ class OPRRL(object):
         avg_reward_prime /= self.sac_hyparams.test_episodes
         
         
-        if avg_reward > 1000 and self.rn_flag == 0:
+        if avg_reward > 2000 and self.rn_flag == 0:
             self.change_to_rn = True
             self.rn_flag = 1
     
@@ -139,6 +139,7 @@ class OPRRL(object):
                     self.agent_memory.push(state, action, reward_prime, next_state, mask)
                 else:
                     self.agent_memory.push(state, action, reward, next_state, mask)
+                
                 
                 self.reward_list.append(reward)
                 self.reward_prime_list.append(reward_prime)
@@ -213,5 +214,5 @@ if __name__ == '__main__':
     
     oprrl = OPRRL(sac_hyperparams, reward_hyperparams)
     #oprrl.agent.load_model('models/sac_actor_Ant_v3_4957', 'models/sac_critic_Ant_v3_4957')
-    oprrl.reward_network.load_reward_model(reward_path='reward_models/reward_model_Ant_v3_3230') #4177
+    oprrl.reward_network.load_reward_model(reward_path='reward_models/2_300/reward_model_Ant_v3_710') #4177
     oprrl.train()

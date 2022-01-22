@@ -18,6 +18,7 @@ class OPRRL(object):
         # Environment
         # env = NormalizedActions(gym.make(hyperparameters.env_name))
         self.env = gym.make(sac_hyperparams.env_name, terminate_when_unhealthy = False)
+        self.env._max_episode_steps = 300
         self.env.seed(sac_hyperparams.seed)
         self.env.action_space.seed(sac_hyperparams.seed)
         self.state_dim = self.env.observation_space.shape[0]
@@ -37,7 +38,7 @@ class OPRRL(object):
         self.agent_memory = ReplayMemory(sac_hyperparams.replay_size, sac_hyperparams.seed)
         
         # Reward Net
-        self.reward_network = RewardNetwork(self.state_dim, self.action_dim.shape[0], args = reward_hyperparams)
+        self.reward_network = RewardNetwork(self.state_dim, self.action_dim.shape[0], self.env._max_episode_steps, args = reward_hyperparams)
         
         # Training Loop
         self.total_numsteps = 0
@@ -133,7 +134,7 @@ class OPRRL(object):
             #     break
             
             if self.rank_count >= 3:
-                print('leanr reward')
+                print('learn reward')
                 self.reward_network.learn_reward()
         
             if i_episode > self.sac_hyparams.max_episodes:
@@ -142,7 +143,7 @@ class OPRRL(object):
             # if i_episode % 200 == 0:
             #     self.agent.save_model(env_name='Ant_v3', suffix=str(int(episode_reward)))
             
-            if i_episode % 500 == 0:
+            if i_episode % 1000 == 0:
                 self.reward_network.save_reward_model(env_name="Ant_v3", version=str(int(episode_reward)))
             
             if i_episode % self.reward_hyperparams.rank_frequency == 0:
@@ -180,7 +181,7 @@ if __name__ == '__main__':
         'seed': 123456,  #random seed (default: 123456)
         'batch_size': 256,
         'max_steps': 50000,  #maximum number of steps (default: 1000000)
-        'max_episodes': 3000,  #maximum number of episodes (default: 3000)
+        'max_episodes': 5000,  #maximum number of episodes (default: 3000)
         'hidden_size': 256,
         'updates_per_step': 1,  #model updates per simulator step (default: 1)
         'start_steps': 200000,  #Steps sampling random actions (default: 10000 , 200000)
