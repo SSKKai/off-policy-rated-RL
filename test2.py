@@ -52,7 +52,7 @@ class OPRRL(object):
         self.e_reward_list = []
         self.e_reward_prime_list = []
         
-        self.training_flag = 1
+        self.training_flag = 0
         self.s1_episode = 100
         
         
@@ -376,7 +376,7 @@ class OPRRL(object):
 
 if __name__ == '__main__':
     sac_hyperparams = {
-        'env_name': "Ant-v3",  #Mujoco Gym environment  HalfCheetah-v2  BipedalWalkerHardcore-v3
+        'env_name': "Ant-v5",  #Mujoco Gym environment  HalfCheetah-v2  BipedalWalkerHardcore-v3
         'policy': "Gaussian",  #Policy Type: Gaussian | Deterministic (default: Gaussian)
         'eval': True,  #Evaluates a policy a policy every 10 episode (default: True)
         'eval_per_episode': 30,  #evaluate policy per episode
@@ -416,7 +416,7 @@ if __name__ == '__main__':
     
     
     oprrl = OPRRL(sac_hyperparams, reward_hyperparams)
-    oprrl.train()
+    oprrl.train_1()
     
     # oprrl.agent = SAC(oprrl.state_dim, oprrl.action_dim, args=sac_hyperparams)
     # oprrl.agent_memory = ReplayMemory(sac_hyperparams.replay_size, sac_hyperparams.seed)

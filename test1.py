@@ -176,7 +176,7 @@ class OPRRL(object):
                     print('swith to section 2')
                     
             elif self.training_flag == 1:
-                if episode_reward > 1000:
+                if episode_reward > 400:
                     self.training_flag = 2
                     self.agent_memory.relabel_memory(self.reward_network)
                     print('swith to section 3')
