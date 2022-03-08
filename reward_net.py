@@ -25,7 +25,8 @@ class Reward_Net(nn.Module):
         x = F.leaky_relu(self.linear2(x))
         x = F.leaky_relu(self.linear3(x))
         x = torch.tanh(self.linear4(x))
-        return x
+        # return x
+        return (x-1)/2
 
 
 class RewardNetwork(object):
@@ -57,13 +58,17 @@ class RewardNetwork(object):
         self.true_reward_buffer = []
         self.ranked_trajs = []
         self.ranked_labels = []
+        self.filled_episode_list = []
         
         self.train_batch_size = 128
         self.epoch = 3
         self.optimizer = optim.Adam(self.reward_network.parameters(), lr=args.lr)
     
     def get_reward(self, state, action):
-        inputs = np.concatenate([state, action], axis=-1)
+        if self.state_only:
+            inputs = state
+        else:
+            inputs = np.concatenate([state, action], axis=-1)
         reward = self.reward_network(torch.from_numpy(inputs).float().to(self.device))
         return reward
     
@@ -83,7 +88,10 @@ class RewardNetwork(object):
             self.new_trajectory = True
             ################## temp ######################
             if len(self.buffer[-1]) < self.episode_length:
-                del self.buffer[-1]
+                episode_filling = [self.buffer[-1][-1] for _ in range(self.episode_length - len(self.buffer[-1]))]
+                self.buffer[-1] += episode_filling
+                self.filled_episode_list.append(len(self.buffer)-1)
+            #     del self.buffer[-1]
             ###############################################
             if len(self.buffer) > self.traj_capacity:
                 self.buffer = self.buffer[1:]
@@ -101,7 +109,9 @@ class RewardNetwork(object):
             self.new_reward_traj = True
             ################## temp ######################
             if len(self.true_reward_buffer[-1]) < self.episode_length:
-                del self.true_reward_buffer[-1]
+                reward_filling = [self.true_reward_buffer[-1][-1] for _ in range(self.episode_length - len(self.true_reward_buffer[-1]))]
+                self.true_reward_buffer[-1] += reward_filling
+            #     del self.true_reward_buffer[-1]
             ###############################################
             if len(self.true_reward_buffer) > self.traj_capacity:
                 self.true_reward_buffer = self.true_reward_buffer[1:]
@@ -146,16 +156,7 @@ class RewardNetwork(object):
         if self.rank_by_true_reward:
             for i in range(self.num_to_rank):
                 total_reward = sum(self.true_reward_buffer[rank_index[i]])
-                
-                # if total_reward <= -1500:
-                #     rank = 0
-                # elif -1500 < total_reward <= 0:
-                #     rank = 2*(total_reward+1500)/1500
-                # elif total_reward > 0:
-                #     rank = 2 + 8*total_reward/5000
-                #     if rank > 10:
-                #         rank = 10
-                
+
                 if total_reward/self.episode_length <= -1.5:
                     rank = 0
                 elif -1.5 < total_reward/self.episode_length <= 0:
@@ -164,6 +165,11 @@ class RewardNetwork(object):
                     rank = 2 + 8*(total_reward/self.episode_length)/5
                     if rank > 10:
                         rank = 10
+
+                if total_reward/self.episode_length <= -1.2:
+                    rank = 0
+                else:
+                    rank = ((total_reward/self.episode_length)/1.2 + 1)*10
                 
                 rank_label.append(rank)
         

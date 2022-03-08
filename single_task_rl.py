@@ -7,7 +7,7 @@ from custom_env import CustomEnv
 import argparse
 
 rlbench_env_config = {
-    'task': "ReachTarget",  #
+    'task': "CloseMicrowave",  #
     'static_env': False,  #
     'headless_env': False,  #
     'save_demos': True,  #
@@ -25,7 +25,7 @@ class Agent(object):
     def act(self, obs):
         # arm = np.random.normal(0.0, 0.1, size=(self.action_size - 1,))
         arm = -1 + 2 * np.random.random_sample(self.action_size - 1)
-        gripper = [0.0]  # Always open
+        gripper = [-0.9]  # Always open
         return np.concatenate([arm, gripper], axis=-1)
 
 env = CustomEnv(rlbench_env_config)
@@ -33,7 +33,7 @@ env = CustomEnv(rlbench_env_config)
 agent = Agent(env.env.action_size)
 
 training_steps = 200
-episode_length = 100
+episode_length = 50
 for i in range(training_steps):
     if i % episode_length == 0:
         print('Reset Episode')

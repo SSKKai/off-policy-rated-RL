@@ -38,45 +38,40 @@ class OPRRL(object):
         self.agent_memory = ReplayMemory(sac_hyperparams.replay_size, sac_hyperparams.seed)
         
         # Reward Net
-        # self.reward_network = RewardNetwork(self.state_dim, self.action_dim.shape[0], self.env._max_episode_steps, args = reward_hyperparams)
+        self.reward_network = RewardNetwork(self.state_dim, self.action_dim.shape[0], 250, args=reward_hyperparams)
         
         # Training Loop
         self.total_numsteps = 0
         self.updates = 0
         
         self.rank_count = 0
+
+        self.start_steps_1 = 150000
         
         
     def evaluate(self, i_episode):
-        #avg_reward = 0.
-        #avg_reward_prime = 0.
         print("----------------------------------------")
-        for _  in range(self.sac_hyparams.test_episodes):
-            state = self.env.reset()
+        for _  in range(i_episode):
+            obs, task_obs, state_obs = self.env.reset()
+            state = np.concatenate([state_obs, task_obs], axis=-1)
+            state[state==None] = 0.0
+            state = state.astype(np.float32)
+
             episode_reward = 0
             episode_reward_prime = 0
             done = False
             while not done:
-                if self.sac_hyparams.render:
-                    self.env.render()
                 action = self.agent.select_action(state, evaluate=True)
-                next_state, reward, done, _ = self.env.step(action)
+
+                next_obs, next_task_obs, next_state_obs, reward, done = self.env.step(action) # Step
+                next_state = np.concatenate([next_state_obs, next_task_obs], axis=-1)
+                next_state[next_state == None] = 0.0
+                next_state = next_state.astype(np.float32)
                 # reward_prime = self.reward_network.get_reward(state, action).detach().cpu().numpy()[0]
                 episode_reward += reward
                 state = next_state
-            #avg_reward += episode_reward
-            #avg_reward_prime += episode_reward_prime
             print("Reward: {}".format(round(episode_reward, 2)))
-        #avg_reward /= self.sac_hyparams.test_episodes
-        #avg_reward_prime /= self.sac_hyparams.test_episodes
-    
-    
-        #self.writer.add_scalar('avg_reward/test', avg_reward, i_episode)
-    
-        
-        
         print("----------------------------------------")
-        #glfw.terminate()
         
         
     def train(self):
@@ -85,6 +80,7 @@ class OPRRL(object):
 
         for i_episode in itertools.count(1):
             episode_reward = 0
+            episode_reward_prime = 0
             episode_steps = 0
             done = False
             obs, task_obs, state_obs = self.env.reset()
@@ -110,26 +106,19 @@ class OPRRL(object):
                 next_state = np.concatenate([next_state_obs, next_task_obs], axis=-1)
                 next_state[next_state == None] = 0.0
                 next_state = next_state.astype(np.float32)
+                reward_prime = self.reward_network.get_reward(state, action).detach().cpu().numpy()[0]
 
-                ee_pose = np.array([getattr(next_obs, 'gripper_pose')[:3]])
-                target_pose = np.array([getattr(next_obs, 'task_low_dim_state')])
-                distance = np.sqrt(
-                    (target_pose[0, 0] - ee_pose[0, 0]) ** 2 + (target_pose[0, 1] - ee_pose[0, 1]) ** 2 + (
-                            target_pose[0, 2] - ee_pose[0, 2]) ** 2)
-                reward = np.exp(1/distance) * 0.1
-                if reward > 10:
-                    reward = 10
 
-                
                 episode_steps += 1
                 self.total_numsteps += 1
                 episode_reward += reward
+                episode_reward_prime += reward_prime
 
                 # Ignore the "done" signal if it comes from hitting the time horizon.
                 # (https://github.com/openai/spinningup/blob/master/spinup/algos/sac/sac.py)
-                # mask = 1 if episode_steps == self.env._max_episode_steps else float(not done)
+                mask = 1 if episode_steps == 250 else float(not done)
 
-                self.agent_memory.push(state, action, reward, next_state, done) # push data to agent memory
+                self.agent_memory.push(state, action, reward_prime, next_state, mask) # push data to agent memory
 
                 if episode_steps % 250 == 0:
                     done = True
@@ -139,8 +128,8 @@ class OPRRL(object):
             if i_episode > self.sac_hyparams.max_episodes:
                 break
 
-            print("E{}, t numsteps: {}, e steps: {}, reward: {}".format(i_episode, self.total_numsteps, episode_steps,
-                                                                                                            round(episode_reward, 2)))
+            print("E{}, t numsteps: {}, e steps: {}, reward: {}, reward_prime: {}".format(i_episode, self.total_numsteps, episode_steps,
+                                                                                                            round(episode_reward, 2),round(episode_reward_prime, 2)))
         
             # if i_episode % self.sac_hyparams.eval_per_episode == 0 and self.sac_hyparams.eval is True:
             #     self.evaluate(i_episode)
@@ -167,7 +156,7 @@ if __name__ == '__main__':
         'seed': 123456,  #random seed (default: 123456)
         'batch_size': 256,
         'max_steps': 50000,  #maximum number of steps (default: 1000000)
-        'max_episodes': 2000,  #maximum number of episodes (default: 3000)
+        'max_episodes': 6000,  #maximum number of episodes (default: 3000)
         'hidden_size': 256,
         'updates_per_step': 1,  #model updates per simulator step (default: 1)
         'start_steps': 10000,  #Steps sampling random actions (default: 10000 , 200000)
@@ -190,21 +179,22 @@ if __name__ == '__main__':
     rlb_env_config = {
         'task': "ReachTarget",  #
         'static_env': False,  #
-        'headless_env': False,  #
+        'headless_env': True,  #
         'save_demos': True,  #
         'learn_reward_frequency': 100,  #
         'episodes': 10,  #
         'sequence_len': 150,  #
         'obs_type': "LowDimension"  # LowDimension WristCameraRGB
     }
-    
+
     
     sac_hyperparams = argparse.Namespace(**sac_hyperparams)
     reward_hyperparams = argparse.Namespace(**reward_hyperparams)
     
     
     oprrl = OPRRL(sac_hyperparams, reward_hyperparams, rlb_env_config)
-    
-    
+    oprrl.reward_network.load_reward_model(reward_path='reward_models/reward_model_ReachTarget_1')
+
+
     oprrl.train()
            

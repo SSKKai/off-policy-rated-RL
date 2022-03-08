@@ -14,6 +14,7 @@ from rlbench.tasks import (
     TakeLidOffSaucepan,
     UnplugCharger,
     ReachTarget,
+    PickAndLift
 )
 
 def create_log_gaussian(mean, log_std, t):
@@ -48,7 +49,8 @@ task_switch = {
     "PushButton": PushButton,
     "TakeLidOffSaucepan": TakeLidOffSaucepan,
     "UnplugCharger": UnplugCharger,
-    "ReachTarget": ReachTarget
+    "ReachTarget": ReachTarget,
+    "PickAndLift": PickAndLift
 }
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(device)
@@ -336,3 +338,31 @@ def set_seeds(seed=0):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
+
+
+    # def get_reward(self):
+    #     if self.task_name == "ReachTarget":
+    #         x, y, z, qx, qy, qz, qw = self.task._robot.arm.get_tip().get_pose()
+    #         tar_x, tar_y, tar_z, _, _, _, _ = self.task._task.target.get_pose()
+    #         reward = -(np.abs(x - tar_x) + np.abs(y - tar_y) + np.abs(z - tar_z))
+    #
+    #     elif self.task_name == "PushButton":
+    #         x, y, z, qx, qy, qz, qw = self.task._robot.arm.get_tip().get_pose()
+    #         tar_x, tar_y, tar_z, _, _, _, _ = self.task._task.target_button.get_pose()
+    #         tar_rot = Quaternion(0,0,1,0)
+    #         arm_rot = Quaternion(qw, qx, qy, qz)
+    #         rot_distance = Quaternion.absolute_distance(arm_rot, tar_rot)
+    #         distance = np.abs(x - tar_x) + np.abs(y - tar_y) + 0.8*np.abs(z - tar_z)
+    #         factor = (1.5 - (np.abs(x - tar_x) + np.abs(y - tar_y) + np.abs(z - tar_z)))/4
+    #         # distance = np.sqrt((x - tar_x) ** 2 + (y - tar_y) ** 2 + 0.75*(z - tar_z) ** 2)
+    #         # factor = (1 - np.sqrt((x - tar_x) ** 2 + (y - tar_y) ** 2 + (z - tar_z) ** 2))/4
+    #         if factor < 0:
+    #             factor = 0
+    #         reward = -(distance+factor*rot_distance)
+    #         if z < 0.755:
+    #             reward += -0.1
+    #
+    #     else:
+    #         reward = 0
+    #
+    #     return reward

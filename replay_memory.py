@@ -4,12 +4,13 @@ import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class ReplayMemory:
-    def __init__(self, capacity, seed):
+    def __init__(self, capacity=1000000, seed=123456, state_only=False):
         random.seed(seed)
         self.capacity = capacity
         self.buffer = []
         self.position = 0
         self.device = device
+        self.state_only = state_only
 
     def push(self, state, action, reward, next_state, done):
         if len(self.buffer) < self.capacity:
@@ -32,7 +33,10 @@ class ReplayMemory:
             
         
         ##################################
-        traj_list = [np.concatenate([traj[0],traj[1]], axis=-1) for traj in self.buffer]
+        if self.state_only:
+            traj_list = [traj[0] for traj in self.buffer]
+        else:
+            traj_list = [np.concatenate([traj[0],traj[1]], axis=-1) for traj in self.buffer]
         traj_list = np.array(traj_list)
         with torch.no_grad():
             rewards = reward_network.reward_network(torch.from_numpy(traj_list).float().to(self.device))
