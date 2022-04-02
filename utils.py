@@ -340,29 +340,14 @@ def set_seeds(seed=0):
     random.seed(seed)
 
 
-    # def get_reward(self):
-    #     if self.task_name == "ReachTarget":
-    #         x, y, z, qx, qy, qz, qw = self.task._robot.arm.get_tip().get_pose()
-    #         tar_x, tar_y, tar_z, _, _, _, _ = self.task._task.target.get_pose()
-    #         reward = -(np.abs(x - tar_x) + np.abs(y - tar_y) + np.abs(z - tar_z))
-    #
-    #     elif self.task_name == "PushButton":
-    #         x, y, z, qx, qy, qz, qw = self.task._robot.arm.get_tip().get_pose()
-    #         tar_x, tar_y, tar_z, _, _, _, _ = self.task._task.target_button.get_pose()
-    #         tar_rot = Quaternion(0,0,1,0)
-    #         arm_rot = Quaternion(qw, qx, qy, qz)
-    #         rot_distance = Quaternion.absolute_distance(arm_rot, tar_rot)
-    #         distance = np.abs(x - tar_x) + np.abs(y - tar_y) + 0.8*np.abs(z - tar_z)
-    #         factor = (1.5 - (np.abs(x - tar_x) + np.abs(y - tar_y) + np.abs(z - tar_z)))/4
-    #         # distance = np.sqrt((x - tar_x) ** 2 + (y - tar_y) ** 2 + 0.75*(z - tar_z) ** 2)
-    #         # factor = (1 - np.sqrt((x - tar_x) ** 2 + (y - tar_y) ** 2 + (z - tar_z) ** 2))/4
-    #         if factor < 0:
-    #             factor = 0
-    #         reward = -(distance+factor*rot_distance)
-    #         if z < 0.755:
-    #             reward += -0.1
-    #
-    #     else:
-    #         reward = 0
-    #
-    #     return reward
+def get_wandb_config(hydra_config):
+    config_dic = vars(hydra_config)['_content']
+    keys = tuple(config_dic.keys())
+    config_wandb = {}
+    for key in keys:
+        sub_config = config_dic[key]
+        sub_keys = tuple(sub_config.keys())
+        for sub_key in sub_keys:
+            config_wandb[key + '_' + sub_key] = sub_config[sub_key]
+
+    return config_wandb

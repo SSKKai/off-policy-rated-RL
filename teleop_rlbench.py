@@ -8,6 +8,7 @@ from human_feedback import correct_action
 from utils import KeyboardObserver, TrajectoriesDataset, loop_sleep
 from custom_env import CustomEnv
 from pyquaternion import Quaternion
+import argparse
 
 config = {
     'task': "CloseMicrowave",  #
@@ -19,6 +20,7 @@ config = {
     'sequence_len': 150,  #
     'obs_type': "LowDimension"  # LowDimension WristCameraRGB
 }
+config = argparse.Namespace(**config)
 
 state_list = []
 
@@ -30,7 +32,7 @@ time.sleep(5)
 print("Go!")
 episodes_count = 0
 first_flag = 0
-while episodes_count < config["episodes"]:
+while episodes_count < config.episodes:
     start_time = time.time()
     action = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, gripper_open])
 

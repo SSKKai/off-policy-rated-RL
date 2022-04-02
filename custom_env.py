@@ -79,7 +79,7 @@ class CustomEnv:
         #     task_low_dim_state=False,
         # )
 
-        self.obs_type = config["obs_type"]
+        self.obs_type = config.obs_type
 
         obs_config = ObservationConfig()
         obs_config.set_all(False)
@@ -95,13 +95,13 @@ class CustomEnv:
         self.env = Environment(
             action_mode,
             obs_config=obs_config,
-            static_positions=config["static_env"],
-            headless=config["headless_env"],
+            static_positions=config.static_env,
+            headless=config.headless_env,
         )
         self.env.launch()
-        self.task_name = config["task"]
-        self.task = self.env.get_task(task_switch[config["task"]])
-        self.gripper_plot = GripperPlot(config["headless_env"])
+        self.task_name = config.task
+        self.task = self.env.get_task(task_switch[self.task_name])
+        self.gripper_plot = GripperPlot(config.headless_env)
         self.gripper_open = 0.9 #0.9
         self.gripper_deque = deque([0.9] * 20, maxlen=20)
         self.first_flag = 0
@@ -144,6 +144,8 @@ class CustomEnv:
             tar_x, tar_y, tar_z, _, _, _, _ = self.task._task.target.get_pose()
             reward = -(np.abs(x - tar_x) + np.abs(y - tar_y) + np.abs(z - tar_z))
 
+        #############################################################
+        #############################################################
         elif self.task_name == "PushButton":
             ############################################################################
             # x, y, z, qx, qy, qz, qw = self.task._robot.arm.get_tip().get_pose()
@@ -173,8 +175,6 @@ class CustomEnv:
             #
             # if z < 0.758:
             #     reward += -0.2
-            #
-            # print(reward, -2*distance, -factor*rot_distance)
             ###############################################################################
             # x, y, z, qx, qy, qz, qw = self.task._robot.arm.get_tip().get_pose()
             # tar_x, tar_y, tar_z, _, _, _, _ = self.task._task.target_button.get_pose()
@@ -184,41 +184,22 @@ class CustomEnv:
             # std_vec = [0, 0, 1]
             # arm_vec = trans_rot.rotate(std_vec)
             # rot_distance = np.arccos(np.clip(np.dot(arm_vec, std_vec), -1.0, 1.0))
+            # distance = np.sqrt((x - tar_x) ** 2 + (y - tar_y) ** 2 + (z - tar_z) ** 2)
             #
             # if self.first_flag == 0:
             #
-            #     self.init_state['xy_distance'] = np.sqrt((x - tar_x) ** 2 + (y - tar_y) ** 2)
-            #     self.init_state['z_distance'] = z - 0.8430
-            #     self.init_state['final_distance'] = 0.8430 - tar_z
-            #     self.init_state['final_dis'] = np.sqrt((0.8430 - tar_z)**2)
+            #     self.init_state['distance'] = distance
             #     self.init_state['rot_distance'] = rot_distance
             #     self.first_flag = 1
             #
-            # xy_distance = np.sqrt((x - tar_x) ** 2 + (y - tar_y) ** 2)
-            # reward_1 = np.clip(-1 * xy_distance/self.init_state['xy_distance'], -1, 0)
+            # reward_distance = np.clip(-1 * distance/self.init_state['distance'], -2, 0)
             #
-            # z_distance = z - 0.8430
-            # reward_2 = np.clip(-1 * z_distance/self.init_state['z_distance'], -1, 0)
+            # reward_rot = np.clip(-0.25 * rot_distance/(self.init_state['rot_distance']), -2, 0)
             #
-            # final_distance = np.sqrt((x - tar_x) ** 2 + (y - tar_y) ** 2 + (z - tar_z) ** 2)
-            # reward_3 = np.clip(-1 * final_distance/self.init_state['final_distance'], -1, 0)
+            # reward = reward_distance + reward_rot
             #
-            # reward_rot = np.clip(-0.5 * rot_distance/(self.init_state['rot_distance']+0.2), -0.5, 0)
-            #
-            # if self.reward_section == 1:
-            #     reward_2 = -1
-            #     reward_3 = -1
-            #     if abs(reward_1) < 0.1:
-            #         self.reward_section = 2
-            #         self.init_state['z_distance'] = z - 0.8430
-            # elif self.reward_section == 2:
-            #     reward_3 = -1
-            #     if abs(reward_2) < 0.1:
-            #         self.reward_section = 3
-            #
-            # reward = (reward_1 + reward_2 + reward_3 + reward_rot)/3
             # if z < 0.758:
-            #     reward += -0.2
+            #     reward += -0.02
             #############################################################################################
             x, y, z, qx, qy, qz, qw = self.task._robot.arm.get_tip().get_pose()
             tar_x, tar_y, tar_z, _, _, _, _ = self.task._task.target_button.get_pose()
@@ -252,7 +233,7 @@ class CustomEnv:
             final_distance = np.sqrt((x - tar_x) ** 2 + (y - tar_y) ** 2 + (z - tar_z) ** 2)
             reward_3 = np.clip(-0.5 * final_distance/self.init_state['final_distance'], -1, 0)
 
-            reward_rot = np.clip(-0.25 * rot_distance/(self.init_state['rot_distance']+0.2), -0.5, 0)
+            reward_rot = np.clip(-0.25 * rot_distance/(self.init_state['rot_distance']+0.2), 1, 0) # clip(-0.5, 0)
 
             if self.reward_section == 1:
                 reward_2 = -1
@@ -266,9 +247,11 @@ class CustomEnv:
                     self.reward_section = 3
 
             reward = reward_1 + reward_2 + reward_3 + reward_rot
-            if z < 0.758:
-                reward += -0.2
+            # if z < 0.758:
+            #     reward += -0.2
 
+        #####################################################
+        #####################################################
         elif self.task_name == "CloseMicrowave":
             x, y, z, qx, qy, qz, qw  = self.task._robot.arm.get_tip().get_pose()
             door_x, door_y, door_z, door_qx, door_qy, door_qz, door_qw = self.task._task.get_low_dim_state()[50:57]
@@ -285,14 +268,15 @@ class CustomEnv:
 
             dx, dy, dz = tar_rot.rotate([1, 0, 0])
             vx, vy, vz = self.task._robot.gripper.get_velocity()[0]
-            angle = np.arccos(
-                np.clip(np.dot([dx, dy], [vx / np.sqrt(vx ** 2 + vy ** 2), vy / np.sqrt(vx ** 2 + vy ** 2)]), -1.0, 1.0))
-            velocity = np.sqrt(vx ** 2 + vy ** 2) * math.cos(angle)
+            if vx == 0 and vy == 0:
+                velocity = 0.0
+            else:
+                angle = np.arccos(np.clip(np.dot([dx, dy], [vx / np.sqrt(vx ** 2 + vy ** 2), vy / np.sqrt(vx ** 2 + vy ** 2)]), -1.0, 1.0))
+                velocity = np.sqrt(vx ** 2 + vy ** 2) * math.cos(angle)
 
             if self.first_flag == 0:
 
                 self.init_state['door_open'] = door_open
-                self.init_state['z'] = z
                 self.init_state['rot_distance'] = rot_distance
                 self.init_state['xy_distance'] = xy_distance
                 self.init_state['z_distance'] = z_distance
@@ -312,9 +296,9 @@ class CustomEnv:
             elif self.reward_section == 2:
                 xy_reward = 0
 
-            reward = main_reward + rot_reward + xy_reward + z_reward + vel_reward # 1*vel_reward
+            reward = main_reward + rot_reward + xy_reward + 1.2*z_reward + vel_reward #
 
-            # print(reward, main_reward, rot_reward, vel_reward, self.reward_section)
+            # print(reward, vel_reward, self.reward_section)
 
         else:
             reward = 0

@@ -39,7 +39,7 @@ class OPRRL(object):
         self.agent_memory = ReplayMemory(sac_hyperparams.replay_size, sac_hyperparams.seed)
         
         # Reward Net
-        self.reward_network = RewardNetwork(self.state_dim, self.action_dim.shape[0], 250, args=reward_hyperparams)
+        self.reward_network = RewardNetwork(self.state_dim, self.action_dim.shape[0], 200, args=reward_hyperparams)
         
         # Training Loop
         self.total_numsteps = 0
@@ -117,9 +117,9 @@ class OPRRL(object):
 
                 # Ignore the "done" signal if it comes from hitting the time horizon.
                 # (https://github.com/openai/spinningup/blob/master/spinup/algos/sac/sac.py)
-                mask = 1 if episode_steps == 250 else float(not done)
+                mask = 1 if episode_steps == 200 else float(not done)
 
-                if episode_steps % 250 == 0:
+                if episode_steps % 200 == 0:
                     done = True
 
                 if self.total_numsteps > self.start_steps_1:
@@ -171,7 +171,7 @@ if __name__ == '__main__':
         'seed': 123456,  #random seed (default: 123456)
         'batch_size': 256,
         'max_steps': 50000,  #maximum number of steps (default: 1000000)
-        'max_episodes': 1200,  #maximum number of episodes (default: 3000)
+        'max_episodes': 4000,  #maximum number of episodes (default: 3000)
         'hidden_size': 256,
         'updates_per_step': 1,  #model updates per simulator step (default: 1)
         'start_steps': 10000,  #Steps sampling random actions (default: 10000 , 200000)
@@ -183,7 +183,7 @@ if __name__ == '__main__':
     reward_hyperparams = {
         'sample_method': "random sample",  #Sample method for sampling a batch of trajectories to get ranked
         'rank_by_true_reward': True,  #rank the trajectory by true reward or by human
-        'state_only': True,  #the reward net is r(s,a) or r(s)
+        'state_only': False,  #the reward net is r(s,a) or r(s)
         'hidden_dim': 256,  #hidden dim for reward network
         'rank_frequency': 30,   #learn reward per N episodes
         'num_to_rank': 10,  #num to rank per reward update
@@ -192,7 +192,7 @@ if __name__ == '__main__':
         }
 
     rlb_env_config = {
-        'task': "ReachTarget",  #
+        'task': "PushButton",  #
         'static_env': False,  #
         'headless_env': True,  #
         'save_demos': True,  #

@@ -8,37 +8,42 @@ from sac import SAC
 from replay_memory import ReplayMemory
 from reward_net import RewardNetwork
 import glfw
+import hydra
 
 from custom_env import CustomEnv
 
 
 class OPRRL(object):
-    def __init__(self, sac_hyperparams, reward_hyperparams, rlb_env_config):
-        self.sac_hyparams = sac_hyperparams
-        self.reward_hyperparams = reward_hyperparams
-        self.rlb_env_config = rlb_env_config
+    def __init__(self, config):
+        self.sac_hyparams = config.sac
+        self.reward_hyparams = config.reward
+        self.env_config = config.env
+
+        # Experiment setup
+        self.episode_len = config.experiment.episode_len
+        self.max_episodes = config.experiment.max_episodes
         
         # Environment
-        self.env = CustomEnv(rlb_env_config)
-        obs, task_obs, state_obs = self.env.reset()
-        self.state_dim = 8+11 #ReachTarget:8+3, PushButton:8+3, CloseMicrowave:8+11
+        self.env = CustomEnv(self.env_config)
+        self.env.reset()
+        self.state_dim = self.env_config.state_dim #ReachTarget:8+3, PushButton:8+3, CloseMicrowave:8+11
         action_size = self.env.env.action_size
         action_high = np.ones(action_size, dtype=np.float32)
         action_low = np.ones(action_size, dtype=np.float32)*(-1)
         action_low[-1] = 0.0
         self.action_dim = argparse.Namespace(**{'high': action_high, 'low': action_low, 'shape': (action_size,)})
         
-        torch.manual_seed(sac_hyperparams.seed)
-        np.random.seed(sac_hyperparams.seed)
+        torch.manual_seed(self.sac_hyparams.seed)
+        np.random.seed(self.sac_hyparams.seed)
         
         # Agent
-        self.agent = SAC(self.state_dim, self.action_dim, args=sac_hyperparams)
+        self.agent = SAC(self.state_dim, self.action_dim, args=self.sac_hyparams)
         
         # Memory
-        self.agent_memory = ReplayMemory(sac_hyperparams.replay_size, sac_hyperparams.seed)
+        self.agent_memory = ReplayMemory(self.sac_hyparams.replay_size, self.sac_hyparams.seed)
         
         # Reward Net
-        self.reward_network = RewardNetwork(self.state_dim, self.action_dim.shape[0], 200, args=reward_hyperparams)
+        self.reward_network = RewardNetwork(self.state_dim, self.action_dim.shape[0], self.episode_len, args=self.reward_hyparams)
         
         # Training Loop
         self.total_numsteps = 0
@@ -49,7 +54,7 @@ class OPRRL(object):
         self.start_steps_1 = 150000
         
         
-    def evaluate(self, i_episode):
+    def evaluate(self, i_episode, episode_len):
         print("----------------------------------------")
         for _  in range(i_episode):
             obs, task_obs, state_obs = self.env.reset()
@@ -72,15 +77,12 @@ class OPRRL(object):
                 episode_reward += reward
                 state = next_state
                 episode_steps += 1
-                if episode_steps % 250 == 0:
+                if episode_steps % episode_len == 0:
                     done = True
             print("Reward: {}".format(round(episode_reward, 2)))
         print("----------------------------------------")
-        
-        
+
     def train(self):
-        
-        
 
         for i_episode in itertools.count(1):
             episode_reward = 0
@@ -90,7 +92,6 @@ class OPRRL(object):
             state = np.concatenate([state_obs, task_obs], axis=-1)
             state[state==None] = 0.0
             state = state.astype(np.float32)
-
         
             while not done:
                 if self.sac_hyparams.start_steps > self.total_numsteps:
@@ -110,25 +111,22 @@ class OPRRL(object):
                 next_state[next_state == None] = 0.0
                 next_state = next_state.astype(np.float32)
 
-                # if done:
-                #     reward += 100
-
                 episode_steps += 1
                 self.total_numsteps += 1
                 episode_reward += reward
 
                 # Ignore the "done" signal if it comes from hitting the time horizon.
                 # (https://github.com/openai/spinningup/blob/master/spinup/algos/sac/sac.py)
-                mask = 1 if episode_steps == 200 else float(not done)
+                mask = 1 if episode_steps == self.episode_len else float(not done)
 
                 self.agent_memory.push(state, action, reward, next_state, mask) # push data to agent memory
 
-                if episode_steps % 200 == 0:
+                if episode_steps % self.episode_len == 0:
                     done = True
         
                 state = next_state
         
-            if i_episode > self.sac_hyparams.max_episodes:
+            if i_episode > self.max_episodes:
                 break
 
             print("E{}, t numsteps: {}, e steps: {}, reward: {}".format(i_episode, self.total_numsteps, episode_steps,
@@ -144,58 +142,11 @@ class OPRRL(object):
 
 
 if __name__ == '__main__':
-    sac_hyperparams = {
-        'env_name': "Ant-v3",  #Mujoco Gym environment  HalfCheetah-v2  BipedalWalkerHardcore-v3
-        'policy': "Gaussian",  #Policy Type: Gaussian | Deterministic (default: Gaussian)
-        'eval': True,  #Evaluates a policy a policy every 10 episode (default: True)
-        'eval_per_episode': 50,  #evaluate policy per episode
-        'render': False,  #Render when evaluate policy
-        'test_episodes': 3,
-        'gamma': 0.99,  
-        'tau': 0.005,  #target smoothing coefficient(τ) (default: 0.005)
-        'lr': 0.0003,#default=0.0003 / 0.00005
-        'alpha': 0.2,  #Temperature parameter α determines the relative importance of the entropy term against the reward (default: 0.2)
-        'automatic_entropy_tuning': True,  #Automaically adjust α (default: False)
-        'seed': 123456,  #random seed (default: 123456)
-        'batch_size': 256,
-        'max_steps': 50000,  #maximum number of steps (default: 1000000)
-        'max_episodes': 8000,  #maximum number of episodes (default: 3000)
-        'hidden_size': 256,
-        'updates_per_step': 1,  #model updates per simulator step (default: 1)
-        'start_steps': 10000,  #Steps sampling random actions (default: 10000 , 200000)
-        'target_update_interval': 1,  #Value target update per no. of updates per step (default: 1)
-        'replay_size': 1000000,  #size of replay buffer (default: 10000000)
-        'cuda': True
-        }
-    
-    reward_hyperparams = {
-        'sample_method': "random sample",  #Sample method for sampling a batch of trajectories to get ranked
-        'rank_by_true_reward': True,  #rank the trajectory by true reward or by human
-        'state_only': False,  #the reward net is r(s,a) or r(s)
-        'hidden_dim': 256,  #hidden dim for reward network
-        'rank_frequency': 30,   #learn reward per N episodes
-        'num_to_rank': 10,  #num to rank per reward update
-        'traj_capacity': 200,  #trajectory capacity of reward buffer
-        'lr': 0.0005  
-        }
 
-    rlb_env_config = {
-        'task': "CloseMicrowave",  #
-        'static_env': False,  #
-        'headless_env': False,  #
-        'save_demos': True,  #
-        'learn_reward_frequency': 100,  #
-        'episodes': 10,  #
-        'sequence_len': 150,  #
-        'obs_type': "LowDimension"  # LowDimension WristCameraRGB
-    }
+    with hydra.initialize(config_path="config"):
+        config = hydra.compose(config_name="CloseMicrowave")
 
-    
-    sac_hyperparams = argparse.Namespace(**sac_hyperparams)
-    reward_hyperparams = argparse.Namespace(**reward_hyperparams)
-    
-    
-    oprrl = OPRRL(sac_hyperparams, reward_hyperparams, rlb_env_config)
+    oprrl = OPRRL(config)
     
     
     oprrl.train()

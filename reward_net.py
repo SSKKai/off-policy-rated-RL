@@ -4,10 +4,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.utils.rnn import pad_sequence
 import torch.optim as optim
 from torch.distributions import Beta,Normal
+from sklearn.cluster import KMeans
 import math
 import random
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -53,16 +56,19 @@ class RewardNetwork(object):
         self.reward_network = Reward_Net(num_inputs, args.hidden_dim).to(device=self.device)
         
         self.sample_method = args.sample_method
+        self.padding_mask_method = args.padding_mask_method
         
         self.buffer = []
         self.true_reward_buffer = []
         self.ranked_trajs = []
         self.ranked_labels = []
-        self.filled_episode_list = []
+        self.ranked_lens = []
         
         self.train_batch_size = 128
         self.epoch = 3
         self.optimizer = optim.Adam(self.reward_network.parameters(), lr=args.lr)
+
+
     
     def get_reward(self, state, action):
         if self.state_only:
@@ -86,13 +92,6 @@ class RewardNetwork(object):
         self.buffer[-1].append(inputs)
         if done:
             self.new_trajectory = True
-            ################## temp ######################
-            if len(self.buffer[-1]) < self.episode_length:
-                episode_filling = [self.buffer[-1][-1] for _ in range(self.episode_length - len(self.buffer[-1]))]
-                self.buffer[-1] += episode_filling
-                self.filled_episode_list.append(len(self.buffer)-1)
-            #     del self.buffer[-1]
-            ###############################################
             if len(self.buffer) > self.traj_capacity:
                 self.buffer = self.buffer[1:]
         
@@ -107,35 +106,33 @@ class RewardNetwork(object):
         self.true_reward_buffer[-1].append(reward)
         if done:
             self.new_reward_traj = True
-            ################## temp ######################
-            if len(self.true_reward_buffer[-1]) < self.episode_length:
-                reward_filling = [self.true_reward_buffer[-1][-1] for _ in range(self.episode_length - len(self.true_reward_buffer[-1]))]
-                self.true_reward_buffer[-1] += reward_filling
-            #     del self.true_reward_buffer[-1]
-            ###############################################
             if len(self.true_reward_buffer) > self.traj_capacity:
                 self.true_reward_buffer = self.true_reward_buffer[1:]
+
     
     def rank(self):
         if self.sample_method == 'random sample':
-            rank_batch,rank_index = self.random_sample()
+            rank_traj,rank_index = self.random_sample_buffer()
+        elif self.sample_method == 'distance sample':
+            rank_traj, rank_index = self.distance_sample_buffer()
         else:
             raise Exception('wrong sample method for reward learning')
         
-        rank_label = self.get_rank(rank_batch, rank_index)
+        rank_label = self.get_rank(rank_traj, rank_index)
+
+        rank_traj, rank_len = self.padding(rank_traj)
         
-        self.ranked_trajs.extend(rank_batch)
+        self.ranked_trajs.extend(rank_traj)
         self.ranked_labels.extend(rank_label)
+        self.ranked_lens.extend(rank_len)
         
         self.buffer = [self.buffer[i] for i in range(len(self.buffer)) if (i not in rank_index)]
         if self.rank_by_true_reward:
             self.true_reward_buffer = [self.true_reward_buffer[i] for i in range(len(self.true_reward_buffer))
                                        if (i not in rank_index)]
-        
-        
-    
-    #random sample
-    def random_sample(self):
+
+
+    def random_sample_buffer(self):
         
         if len(self.buffer) < self.num_to_rank:
             num_to_rank = len(self.buffer)
@@ -147,9 +144,77 @@ class RewardNetwork(object):
         
         for i in range(num_to_rank):
             sample_batch.append(self.buffer[sample_index[i]])
-        #batch = random.sample(self.buffer, self.num_to_rank)
+        # batch = random.sample(self.buffer, self.num_to_rank)
         return sample_batch, sample_index
-    
+
+    def distance_sample_buffer(self):
+
+        if len(self.buffer) < self.num_to_rank:
+            num_to_rank = len(self.buffer)
+        else:
+            num_to_rank = self.num_to_rank
+
+        padded_buffer, buffer_len_list = self.padding(self.buffer)
+        buffer_mask = self.make_mask(buffer_len_list)[0]
+
+        buffer_mask = buffer_mask.to(self.device)
+        padded_buffer = np.array(padded_buffer)
+
+        rewards = self.reward_network(torch.from_numpy(padded_buffer).float().to(self.device))
+        rewards = torch.squeeze(rewards, axis=-1)
+        rewards = rewards * buffer_mask
+        rewards = rewards.sum(axis=1)
+
+        rewards = rewards.detach().cpu().numpy().reshape(-1, 1)
+        kmeans = KMeans(n_clusters=num_to_rank, random_state=0).fit(rewards)
+        centers = kmeans.cluster_centers_.squeeze(axis=-1)
+
+        sample_index = []
+        for center in centers:
+            idx = (np.abs(rewards - center)).argmin()
+            sample_index.append(idx)
+
+        sample_batch = []
+        for i in range(num_to_rank):
+            sample_batch.append(self.buffer[sample_index[i]])
+
+        return sample_batch, sample_index
+
+
+
+
+
+
+
+    def padding(self, traj_list, method = None):
+
+        if method is None:
+            method = self.padding_mask_method
+
+        batch_len = len(traj_list)
+        traj_len_list = [len(traj) for traj in traj_list]
+        pad_len_list = [self.episode_length - traj_len_list[i] for i in range(batch_len)]
+
+        pad_list = []
+
+        for i in range(batch_len):
+            if "zeros" in method:
+                traj_pad = [np.zeros(self.action_dim + self.state_dim) for _ in range(pad_len_list[i])]
+            if "edge" in method:
+                traj_pad = [traj_list[i][-1] for _ in range(pad_len_list[i])]
+            if "last" in method:
+                n = [int(s) for s in method.split() if s.isdigit()][0]
+                pad_unit = traj_list[i][-n:]
+                traj_pad = [pad_unit for _ in range(int(np.ceil(pad_len_list[i]/n)))]
+                traj_pad = [sa for st in traj_pad for sa in st]
+                if len(traj_pad) > pad_len_list[i]:
+                    del traj_pad[0:len(traj_pad) - pad_len_list[i]]
+
+            pad_list.append(traj_pad)
+
+        padded_traj_list = [traj_list[i] + pad_list[i] for i in range(batch_len)]
+
+        return padded_traj_list, traj_len_list
     
     def get_rank(self, rank_batch, rank_index):
         rank_label = []
@@ -166,14 +231,48 @@ class RewardNetwork(object):
                     if rank > 10:
                         rank = 10
 
-                if total_reward/self.episode_length <= -1.2:
+                if total_reward/self.episode_length <= -3.2: #-1.2 -2 -3
                     rank = 0
                 else:
-                    rank = ((total_reward/self.episode_length)/1.2 + 1)*10
+                    rank = ((total_reward/self.episode_length)/3.2 + 1)*10
                 
                 rank_label.append(rank)
-        
         return rank_label
+
+
+    def make_mask(self, traj_len_list):
+        dim = np.array(traj_len_list).ndim
+
+        if dim == 1:
+            traj_lens = [traj_len_list]
+        elif dim == 2:
+            if "normal mask" in self.padding_mask_method:
+                len1 = [len[0] for len in traj_len_list]
+                len2 = [len[1] for len in traj_len_list]
+            elif "shortest mask" in self.padding_mask_method:
+                len1 = [min(len) for len in traj_len_list]
+                len2 = len1
+            elif "no mask" in self.padding_mask_method:
+                len1 = [self.episode_length for _ in traj_len_list]
+                len2 = len1
+
+            traj_lens = [len1, len2]
+
+
+        # len1 = torch.tensor(len1)
+        # len2 = torch.tensor(len2)
+        #
+        # mask1 = torch.arange(self.episode_length)[None, :] < len1[:, None]
+        # mask2 = torch.arange(self.episode_length)[None, :] < len2[:, None]
+
+        masks = []
+        for lens in traj_lens:
+            lens = torch.tensor(lens)
+            mask = torch.arange(self.episode_length)[None, :] < lens[:, None]
+            masks.append(mask)
+
+        return masks
+
     
     def make_training_batch(self):
         index_list = []
@@ -197,7 +296,7 @@ class RewardNetwork(object):
             rank_list.extend([[self.ranked_labels[idx[0]], self.ranked_labels[idx[1]]]])
         
         
-        #labels = [0 if rank[0] > rank[1] else 0.5 if rank[0]==rank[1] else 1 for rank in rank_list]
+        # labels = [0 if rank[0] > rank[1] else 0.5 if rank[0]==rank[1] else 1 for rank in rank_list]
         labels = [0 if rank[0] > rank[1] else 1 for rank in rank_list]
         labels = np.array(labels)
         traj_list_1 = np.array(traj_list_1)
@@ -232,17 +331,6 @@ class RewardNetwork(object):
                     if abs(self.ranked_labels[index[0]]-self.ranked_labels[index[1]]) < 1 or random.random()>0.8:
                         index_list.extend([index])
             
-            # while len(index_list) < batch_size:
-            #     index = random.sample(range(len(self.ranked_trajs)),1)
-            #     index_2 = random.sample(range(len(self.ranked_trajs)),1)
-            #     while abs(self.ranked_labels[index[0]]-self.ranked_labels[index_2[0]])>1 and random.random()<0.8:
-            #         index_2 = random.sample(range(len(self.ranked_trajs)),1)
-            #     index.extend(index_2)
-            #     index.sort()
-            #     if index not in index_list:
-            #         index_list.extend([index])
-                
-            
             traj_list_1 = []
             traj_list_2 = []
             rank_list = []
@@ -252,7 +340,7 @@ class RewardNetwork(object):
                 rank_list.extend([[self.ranked_labels[idx[0]], self.ranked_labels[idx[1]]]])
             
             
-            #labels = [0 if rank[0] > rank[1] else 0.5 if rank[0]==rank[1] else 1 for rank in rank_list]
+            # labels = [0 if rank[0] > rank[1] else 0.5 if rank[0]==rank[1] else 1 for rank in rank_list]
             labels = [0 if rank[0] > rank[1] else 1 for rank in rank_list]
             labels = np.array(labels)
             traj_list_1 = np.array(traj_list_1)
@@ -271,11 +359,84 @@ class RewardNetwork(object):
             loss = nn.CrossEntropyLoss()(rewards, labels)
             loss.backward()
             self.optimizer.step()
-        
-        #soft_cross_entropy_loss()
-        #return
+
+    def learn_reward_soft(self):
+
+        for epoch in range(self.epoch):
+            self.optimizer.zero_grad()
+            index_list = []
+            if len(self.ranked_trajs) >= 20:
+                batch_size = self.train_batch_size
+            else:
+                batch_size = 32
+
+            # make index
+            while len(index_list) < batch_size:
+                index = random.sample(range(len(self.ranked_trajs)), 2)
+                index.sort()
+                if index not in index_list:
+                    if abs(self.ranked_labels[index[0]] - self.ranked_labels[index[1]]) < 1 or random.random() > 0: #0.8
+                        index_list.extend([index])
+
+            # get training list
+            traj_list_1 = []
+            traj_list_2 = []
+            rank_list = []
+            len_list = []
+            for idx in index_list:
+                traj_list_1.extend([self.ranked_trajs[idx[0]]])
+                traj_list_2.extend([self.ranked_trajs[idx[1]]])
+                rank_list.extend([[self.ranked_labels[idx[0]], self.ranked_labels[idx[1]]]])
+                len_list.extend([[self.ranked_lens[idx[0]], self.ranked_lens[idx[1]]]])
+
+            # make mask
+            mask_1, mask_2 = self.make_mask(len_list)
+
+            # make labels
+            labels = []
+            for rank in rank_list:
+                if rank[0] == rank[1]:
+                    label_1 = 0.5
+                    label_2 = 0.5
+                else:
+                    alpha = 1/((2+abs(rank[0]-rank[1]))**2)
+                    label_1 = (1 - alpha) * (rank[0] > rank[1]) + alpha / 2
+                    label_2 = (1 - alpha) * (rank[0] < rank[1]) + alpha / 2
+
+                labels.append([label_1, label_2])
+
+            # make training batch
+            mask_1 = mask_1.to(self.device)
+            mask_2 = mask_2.to(self.device)
+            labels = torch.tensor(labels).to(self.device)
+            traj_list_1 = np.array(traj_list_1)
+            traj_list_2 = np.array(traj_list_2)
+            traj_list_1 = torch.from_numpy(traj_list_1).float().to(self.device)
+            traj_list_2 = torch.from_numpy(traj_list_2).float().to(self.device)
+
+            # compute loss
+            rewards_1 = self.reward_network(traj_list_1)
+            rewards_2 = self.reward_network(traj_list_2)
+
+            rewards_1 = torch.squeeze(rewards_1, axis=-1)
+            rewards_2 = torch.squeeze(rewards_2, axis=-1)
+
+            rewards_1 = rewards_1 * mask_1
+            rewards_2 = rewards_2 * mask_2
+
+            rewards_1 = rewards_1.sum(axis=1)
+            rewards_2 = rewards_2.sum(axis=1)
+            rewards = torch.stack((rewards_1, rewards_2),axis=1)
+
+            logprobs = torch.nn.functional.log_softmax(rewards, dim=1)
+            loss = -(labels * logprobs).sum() / rewards.shape[0]
+
+            loss.backward()
+            self.optimizer.step()
+
+            return loss
     
-    
+
     
     def save_reward_model(self, env_name, version, reward_path = None):
         if not os.path.exists('reward_models/'):
