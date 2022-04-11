@@ -27,6 +27,9 @@ sac_hyperparams:
 reward_hyperparams:
   sample_method: random sample #Sample method for sampling a batch of trajectories to get ranked
   padding_mask_method: zeros pad normal mask # zeros pad shortest mask, edge pad no mask, last n pad no mask
+  label_type: adaptive #onehot / smoothing / adaptive
+  prio_alpha: 3 # alpha for prioritized sampling
+  best_trajs_num: 10 # None / a number
   rank_by_true_reward: true
   state_only: False #the reward net is r(s,a) or r(s)
   hidden_dim: 256 #hidden dim for reward network

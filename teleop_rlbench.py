@@ -11,7 +11,7 @@ from pyquaternion import Quaternion
 import argparse
 
 config = {
-    'task': "CloseMicrowave",  #
+    'task': "PushButton",  #
     'static_env': False,  #
     'headless_env': False,  #
     'save_demos': True,  #
@@ -68,7 +68,7 @@ while episodes_count < config.episodes:
     # rot_distance = Quaternion.absolute_distance(arm_rot, tar_rot*q_tran)
     # print(rot_distance)
 
-    # print(reward)
+    print(reward)
 
     state_list.append(target_pose)
 

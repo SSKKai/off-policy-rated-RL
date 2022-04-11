@@ -1,8 +1,8 @@
 experiment:
   env_type: rlbench
   episode_len: 150
-  max_episodes: 8000
-  wandb_log: false
+  max_episodes: 3300
+  wandb_log: true
 
 
 sac:
@@ -25,8 +25,11 @@ sac:
   cuda: true
 
 reward:
-  sample_method: distance sample #Sample method for sampling a batch of trajectories to get ranked
-  padding_mask_method: zeros pad shortest mask # zeros pad normal/shortest mask, last n/edge pad no mask
+  sample_method: random sample # random sample / distance sample
+  padding_mask_method: zeros pad normal mask # zeros pad normal/shortest mask, last n/edge pad no mask
+  label_type: adaptive #onehot / smoothing / adaptive
+  prio_alpha: 3 # alpha for prioritized sampling
+  best_trajs_num: 0 # a number
   rank_by_true_reward: true
   state_only: false #the reward net is r(s,a) or r(s)
   hidden_dim: 256 #hidden dim for reward network

@@ -100,4 +100,4 @@ if __name__ == '__main__':
     policy = Play_Policy(config)
     policy.agent.load_model("models/sac_actor_CloseMicrowave_rl_solved", "models/sac_critic_CloseMicrowave_rl_solved")
 
-    policy.evaluate(100,250)
+    policy.evaluate(100, 250)

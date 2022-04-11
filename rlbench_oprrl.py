@@ -76,7 +76,7 @@ class OPRRL(object):
         
     def evaluate(self, i_episode, episode_len):
         print("----------------------------------------")
-        for _  in range(i_episode):
+        for _ in range(i_episode):
             obs, task_obs, state_obs = self.env.reset()
             state = np.concatenate([state_obs, task_obs], axis=-1)
             state[state==None] = 0.0
@@ -162,7 +162,7 @@ class OPRRL(object):
             # self.writer.add_scalar('e_reward/episode_reward_true', episode_reward, i_episode)
             # self.writer.add_scalar('e_reward_prime/episode_reward_prime', episode_reward_prime, i_episode)
             if self.wandb_log:
-                self.logger.log({"e_reward": episode_reward, "e_reward_prime": episode_reward_prime, "i_episode": i_episode})
+                self.logger.log({"e_reward": episode_reward, "e_reward_prime": episode_reward_prime, "episode_steps": episode_steps, "i_episode": i_episode})
 
             self.e_reward_list.append(episode_reward)
             self.e_reward_prime_list.append(episode_reward_prime)
@@ -184,21 +184,21 @@ class OPRRL(object):
                 self.reward_network.num_to_rank = 20
             
             # learn reward
-            if i_episode % learn_frequency == 0:
+            if i_episode % learn_frequency == 0 and i_episode <= 5000:
                 self.reward_network.rank()
                 self.rank_count += 1
                 print('rank successfully')
                 
                 if self.rank_count >= 5:
-                    for i in range(8): #5
+                    for i in range(8):  # 5
                         # self.reward_network.learn_reward()
-                        loss = self.reward_network.learn_reward_soft()
+                        loss, acc = self.reward_network.learn_reward_soft()
                 else:
                     # self.reward_network.learn_reward()
-                    loss = self.reward_network.learn_reward_soft()
+                    loss, acc = self.reward_network.learn_reward_soft()
 
                 if self.wandb_log:
-                    self.logger.log({'reward_loss': loss, 'rank_count': self.rank_count})
+                    self.logger.log({'reward_loss': loss, 'acc': acc, 'rank_count': self.rank_count})
 
                 if self.training_flag == 2:
                     self.agent_memory.relabel_memory(self.reward_network)
@@ -219,4 +219,4 @@ if __name__ == '__main__':
         config = hydra.compose(config_name="PushButton")
 
     oprrl = OPRRL(config)
-    oprrl.train_alt()
+    # oprrl.train_alt()
