@@ -18,18 +18,20 @@ class Play_Policy(object):
     def __init__(self, config):
 
         # Configurations
-        self.sac_hyparams = config.sac_hyperparams
-        self.reward_hyparams = config.reward_hyperparams
-        self.rlb_env_config = config.rlb_env_config
+        # Configurations
+        self.sac_hyparams = config.sac
+        self.reward_hyparams = config.reward
+        self.env_config = config.env
 
         # Experiment setup
         self.episode_len = config.experiment.episode_len
         self.max_episodes = config.experiment.max_episodes
 
         # Environment
-        self.env = CustomEnv(self.rlb_env_config)
+        self.env_type = config.experiment.env_type
+        self.env = CustomEnv(self.env_config)
         self.env.reset()
-        self.state_dim = self.rlb_env_config.state_dim
+        self.state_dim = self.env_config.state_dim
         action_size = self.env.env.action_size
         action_high = np.ones(action_size, dtype=np.float32)
         action_low = np.ones(action_size, dtype=np.float32) * (-1)
@@ -95,9 +97,10 @@ class Play_Policy(object):
 
 if __name__ == '__main__':
     with hydra.initialize(config_path="config"):
-        config = hydra.compose(config_name="CloseMicrowave")
+        config = hydra.compose(config_name="PushButton")
 
     policy = Play_Policy(config)
-    policy.agent.load_model("models/sac_actor_CloseMicrowave_rl_solved", "models/sac_critic_CloseMicrowave_rl_solved")
+    policy.agent.load_model("models/sac_actor_PushButton_rl_solved_1", "models/sac_critic_PushButton_rl_solved_1")
+    # policy.agent.load_model("models/sac_actor_PushButton_oprrl_update", "models/sac_critic_PushButton_oprrl_update")
 
-    policy.evaluate(100, 250)
+    policy.evaluate(20, 250)

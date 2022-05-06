@@ -1,6 +1,7 @@
 import argparse
-import datetime
+import time
 import gym
+from collections import deque
 import numpy as np
 import itertools
 import torch
@@ -15,6 +16,7 @@ from custom_env import CustomEnv
 import hydra
 import wandb
 
+
 class OPRRL(object):
     def __init__(self, config):
 
@@ -26,26 +28,45 @@ class OPRRL(object):
         # Experiment setup
         self.episode_len = config.experiment.episode_len
         self.max_episodes = config.experiment.max_episodes
-        
+        self.seeds = config.experiment.seed
+        self.change_flag_reward = config.experiment.change_flag_reward
+
         # Environment
-        self.env = CustomEnv(self.env_config)
-        self.env.reset()
-        self.state_dim = self.env_config.state_dim
-        action_size = self.env.env.action_size
-        action_high = np.ones(action_size, dtype=np.float32)
-        action_low = np.ones(action_size, dtype=np.float32)*(-1)
-        action_low[-1] = 0.0
-        self.action_dim = argparse.Namespace(**{'high': action_high, 'low': action_low, 'shape': (action_size,)})
+        self.env_type = config.experiment.env_type
+
+        if self.env_type == "rlbench":
+            self.env = CustomEnv(self.env_config)
+            self.env.reset()
+            self.state_dim = self.env_config.state_dim
+            action_size = self.env.env.action_size
+            action_high = np.ones(action_size, dtype=np.float32)
+            action_low = np.ones(action_size, dtype=np.float32)*(-1)
+            action_low[-1] = 0.0
+            self.action_dim = argparse.Namespace(**{'high': action_high, 'low': action_low, 'shape': (action_size,)})
+
+        elif self.env_type == "mujoco":
+            if self.env_config.terminate_when_unhealthy is None:
+                self.env = gym.make(self.env_config.task)
+            else:
+                self.env = gym.make(self.env_config.task, terminate_when_unhealthy=self.env_config.terminate_when_unhealthy)
+            self.env._max_episode_steps = self.episode_len
+            self.env.seed(self.seeds)
+            self.env.action_space.seed(self.seeds)
+            self.state_dim = self.env.observation_space.shape[0]
+            self.action_dim = self.env.action_space
+
+        else:
+            raise Exception('wrong environment type, available: rlbench/mujoco')
         
         # torch.manual_seed(self.sac_hyparams.seed)
         # np.random.seed(self.sac_hyparams.seed)
-        set_seeds(self.sac_hyparams.seed)
+        set_seeds(self.seeds)
         
         # Agent
         self.agent = SAC(self.state_dim, self.action_dim, args=self.sac_hyparams)
         
         # Memory
-        self.agent_memory = ReplayMemory(self.sac_hyparams.replay_size, self.sac_hyparams.seed, self.reward_hyparams.state_only)
+        self.agent_memory = ReplayMemory(self.sac_hyparams.replay_size, self.seeds, self.reward_hyparams.state_only)
         
         # Reward Net
         self.reward_network = RewardNetwork(self.state_dim, self.action_dim.shape[0], self.episode_len, args=self.reward_hyparams)
@@ -71,28 +92,48 @@ class OPRRL(object):
         self.episode_len_list = []
         
         self.training_flag = 2
-        self.s1_episode = 100
-        
-        
-    def evaluate(self, i_episode, episode_len):
-        print("----------------------------------------")
-        for _ in range(i_episode):
+
+    def env_reset(self):
+        if self.env_type == "rlbench":
             obs, task_obs, state_obs = self.env.reset()
             state = np.concatenate([state_obs, task_obs], axis=-1)
-            state[state==None] = 0.0
+            state[state == None] = 0.0
             state = state.astype(np.float32)
+
+        elif self.env_type == "mujoco":
+            state = self.env.reset()
+
+        return state
+
+    def env_step(self, action):
+        if self.env_type == "rlbench":
+            next_obs, next_task_obs, next_state_obs, reward, done = self.env.step(action)  # Step
+            next_state = np.concatenate([next_state_obs, next_task_obs], axis=-1)
+            next_state[next_state == None] = 0.0
+            next_state = next_state.astype(np.float32)
+
+        elif self.env_type == "mujoco":
+            next_state, reward, done, _ = self.env.step(action)
+
+        return next_state, reward, done
+
+
+        
+    def evaluate(self, i_episode=20, episode_len=250, evaluate_mode=True):
+        print("----------------------------------------")
+        for _ in range(i_episode):
+            state = self.env_reset()
 
             episode_reward = 0
             episode_reward_prime = 0
             done = False
             episode_steps = 0
             while not done:
-                action = self.agent.select_action(state, evaluate=True)
-
-                next_obs, next_task_obs, next_state_obs, reward, done = self.env.step(action) # Step
-                next_state = np.concatenate([next_state_obs, next_task_obs], axis=-1)
-                next_state[next_state == None] = 0.0
-                next_state = next_state.astype(np.float32)
+                if self.env_type == "mujoco":
+                    if self.env_config.render:
+                        self.env.render()
+                action = self.agent.select_action(state, evaluate=evaluate_mode)
+                next_state, reward, done = self.env_step(action)
                 # reward_prime = self.reward_network.get_reward(state, action).detach().cpu().numpy()[0]
                 episode_reward += reward
                 state = next_state
@@ -100,26 +141,46 @@ class OPRRL(object):
                 if episode_steps % episode_len == 0:
                     done = True
             print("Reward: {}".format(round(episode_reward, 2)))
+
+        # elif self.env_type == "mujoco":
+        #     for _ in range(i_episode):
+        #         state = self.env.reset()
+        #         episode_reward = 0
+        #         episode_reward_prime = 0
+        #         done = False
+        #         while not done:
+        #             if self.sac_hyparams.render:
+        #                 self.env.render()
+        #             action = self.agent.select_action(state, evaluate=evaluate_mode)
+        #             next_state, reward, done, _ = self.env.step(action)
+        #             reward_prime = self.reward_network.get_reward(state, action).detach().cpu().numpy()[0]
+        #             episode_reward += reward
+        #             episode_reward_prime += reward_prime
+        #             state = next_state
+        #         print("Reward: {}".format(round(episode_reward, 2)))
+
+
         print("----------------------------------------")
 
     def train_alt(self):
 
         frequency_flag = 1
         reach_count = 0
+        succ_de = deque(maxlen=50)
 
         for i_episode in itertools.count(1):
             episode_reward = 0
             episode_reward_prime = 0
             episode_steps = 0
             done = False
-            obs, task_obs, state_obs = self.env.reset()
-            state = np.concatenate([state_obs, task_obs], axis=-1)
-            state[state==None] = 0.0
-            state = state.astype(np.float32)
+            state = self.env_reset()
         
             while not done:
                 if self.sac_hyparams.start_steps > self.total_numsteps:
-                    action = self.env.randn_action()  # Sample random action
+                    if self.env_type == "rlbench":
+                        action = self.env.randn_action()  # Sample random action
+                    elif self.env_type == "mujoco":
+                        action = self.env.action_space.sample()
                 else:
                     action = self.agent.select_action(state)  # Sample action from policy
         
@@ -132,10 +193,7 @@ class OPRRL(object):
                         if self.wandb_log:
                             self.logger.log({"critic_1_loss": critic_1_loss, "critic_2_loss": critic_2_loss, "policy_loss": policy_loss})
 
-                next_obs, next_task_obs, next_state_obs, reward, done = self.env.step(action) # Step
-                next_state = np.concatenate([next_state_obs, next_task_obs], axis=-1)
-                next_state[next_state == None] = 0.0
-                next_state = next_state.astype(np.float32)
+                next_state, reward, done = self.env_step(action)
                 reward_prime = self.reward_network.get_reward(state, action).detach().cpu().numpy()[0]
                 
                 episode_steps += 1
@@ -158,11 +216,19 @@ class OPRRL(object):
                 state = next_state
 
 
-            
-            # self.writer.add_scalar('e_reward/episode_reward_true', episode_reward, i_episode)
-            # self.writer.add_scalar('e_reward_prime/episode_reward_prime', episode_reward_prime, i_episode)
+
             if self.wandb_log:
-                self.logger.log({"e_reward": episode_reward, "e_reward_prime": episode_reward_prime, "episode_steps": episode_steps, "i_episode": i_episode})
+                if self.env_type == "rlbench":
+                    if episode_steps < self.episode_len:
+                        task_succ = True
+                    else:
+                        task_succ = False
+                    succ_de.append(task_succ)
+                    succ_rate = np.mean(succ_de)
+
+                    self.logger.log({"e_reward": episode_reward, "e_reward_prime": episode_reward_prime, "episode_steps": episode_steps, "success_rate": succ_rate, "i_episode": i_episode})
+                elif self.env_type == "mujoco":
+                    self.logger.log({"e_reward": episode_reward, "e_reward_prime": episode_reward_prime, "episode_steps": episode_steps, "i_episode": i_episode})
 
             self.e_reward_list.append(episode_reward)
             self.e_reward_prime_list.append(episode_reward_prime)
@@ -173,8 +239,8 @@ class OPRRL(object):
             
             if frequency_flag == 1:
                 learn_frequency = 10
-                self.reward_network.num_to_rank = 10
-                if episode_reward > -100: # -50
+                self.reward_network.num_to_rank = 5
+                if episode_reward > self.change_flag_reward: # -50 -100 -150
                     reach_count += 1
                 if reach_count > 8:
                     frequency_flag = 2
@@ -182,6 +248,8 @@ class OPRRL(object):
             if frequency_flag == 2:
                 learn_frequency = 100
                 self.reward_network.num_to_rank = 20
+                #############
+                # self.reward_network.sample_method = 'distance sample'
             
             # learn reward
             if i_episode % learn_frequency == 0 and i_episode <= 5000:
@@ -189,16 +257,35 @@ class OPRRL(object):
                 self.rank_count += 1
                 print('rank successfully')
                 
+                acc_ls = []
                 if self.rank_count >= 5:
-                    for i in range(8):  # 5
-                        # self.reward_network.learn_reward()
-                        loss, acc = self.reward_network.learn_reward_soft()
+                    ############################
+                    if frequency_flag == 1:
+                    #########################
+
+                        for i in range(8):  # 5
+                            # self.reward_network.learn_reward()
+                            acc = self.reward_network.learn_reward_soft()
+                            acc_ls.append(acc)
+
+                    #####################################################
+                    if frequency_flag == 2:
+                        for i in range(self.rank_count):  # 5
+                            # self.reward_network.learn_reward()
+                            acc = self.reward_network.learn_reward_soft()
+                            acc_ls.append(acc)
+                            if acc > 0.965:
+                                break
+                    ###################################################
                 else:
                     # self.reward_network.learn_reward()
-                    loss, acc = self.reward_network.learn_reward_soft()
+                    acc = self.reward_network.learn_reward_soft()
+                    acc_ls.append(acc)
+
+                acc = np.mean(acc_ls)
 
                 if self.wandb_log:
-                    self.logger.log({'reward_loss': loss, 'acc': acc, 'rank_count': self.rank_count})
+                    self.logger.log({'acc': acc, 'rank_count': self.rank_count})
 
                 if self.training_flag == 2:
                     self.agent_memory.relabel_memory(self.reward_network)
@@ -216,7 +303,10 @@ class OPRRL(object):
 if __name__ == '__main__':
 
     with hydra.initialize(config_path="config"):
-        config = hydra.compose(config_name="PushButton")
+        config = hydra.compose(config_name="Walker")
 
     oprrl = OPRRL(config)
-    # oprrl.train_alt()
+
+    oprrl.train_alt()
+
+

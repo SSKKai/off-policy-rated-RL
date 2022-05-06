@@ -1,10 +1,10 @@
 experiment:
-  env_type: rlbench
-  episode_len: 150
-  max_episodes: 8000
+  env_type: mujoco
+  episode_len: 500
+  max_episodes: 5000
   wandb_log: false
   seed: 123456
-  change_flag_reward: -150
+  change_flag_reward: 300
 
 
 sac:
@@ -29,7 +29,7 @@ sac:
 reward:
   sample_method: random sample # random sample / distance sample
   padding_mask_method: zeros pad normal mask # zeros pad normal/shortest mask, last n/edge pad no mask
-  label_type: smoothing 0.1 #onehot / smoothing (0.1) / adaptive
+  label_type: adaptive #onehot / smoothing (0.1) / adaptive
   prio_alpha: 3 # alpha for prioritized sampling
   best_trajs_num: 0 # a number
   rank_by_true_reward: true
@@ -37,15 +37,13 @@ reward:
   rank_noise: 0
   state_only: false #the reward net is r(s,a) or r(s)
   hidden_dim: 256 #hidden dim for reward network
-  negative_network_output: true
+  negative_network_output: false
   learn_reward_frequency: 100 #learn reward per N episodes
   num_to_rank: 10 #num to rank per reward update
   traj_capacity: 200 #trajectory capacity of reward buffer
   lr: 0.001
 
 env:
-  task: PushButton
-  static_env: false
-  headless_env: false
-  obs_type: LowDimension
-  state_dim: 11
+  task: Walker2d-v3
+  render: True
+  terminate_when_unhealthy: false

@@ -17,9 +17,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Reward_Net(nn.Module):
-    def __init__(self, num_inputs, hidden_dim):
+    def __init__(self, num_inputs, hidden_dim, negative_network_output):
         super(Reward_Net, self).__init__()
-        
+        self.negative_network_output = negative_network_output
+
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
         self.linear3 = nn.Linear(hidden_dim, hidden_dim)
@@ -30,8 +31,11 @@ class Reward_Net(nn.Module):
         x = F.leaky_relu(self.linear2(x))
         x = F.leaky_relu(self.linear3(x))
         x = torch.tanh(self.linear4(x))
-        # return x
-        return (x-1)/2
+
+        if self.negative_network_output:
+            return (x-1)/2
+        else:
+            return x
 
 
 class RewardNetwork(object):
@@ -50,12 +54,15 @@ class RewardNetwork(object):
         self.episode_length = episode_length
         
         self.num_to_rank = args.num_to_rank
+        self.rank_noise = args.rank_noise
+        self.rank_std = args.rank_std
+        self.negative_network_output = args.negative_network_output
         
         if self.state_only:
             num_inputs = self.state_dim
         else:
             num_inputs = self.state_dim+self.action_dim
-        self.reward_network = Reward_Net(num_inputs, args.hidden_dim).to(device=self.device)
+        self.reward_network = Reward_Net(num_inputs, args.hidden_dim, self.negative_network_output).to(device=self.device)
         
         self.sample_method = args.sample_method
         self.padding_mask_method = args.padding_mask_method
@@ -120,11 +127,11 @@ class RewardNetwork(object):
                 self.true_reward_buffer = self.true_reward_buffer[1:]
 
     
-    def rank(self):
+    def rank(self, num_to_rank=None):
         if self.sample_method == 'random sample':
-            rank_traj, rank_index = self.random_sample_buffer()
+            rank_traj, rank_index = self.random_sample_buffer(num_to_rank)
         elif self.sample_method == 'distance sample':
-            rank_traj, rank_index = self.distance_sample_buffer()
+            rank_traj, rank_index = self.distance_sample_buffer(num_to_rank)
         else:
             raise Exception('wrong sample method for reward learning')
         
@@ -144,12 +151,13 @@ class RewardNetwork(object):
         self.update_sample_prob(self.prio_alpha)
 
 
-    def random_sample_buffer(self):
-        
-        if len(self.buffer) < self.num_to_rank:
-            num_to_rank = len(self.buffer)
-        else: 
+    def random_sample_buffer(self, num_to_rank=None):
+
+        if num_to_rank is None:
             num_to_rank = self.num_to_rank
+        
+        if len(self.buffer) < num_to_rank:
+            num_to_rank = len(self.buffer)
         
         sample_index = random.sample(range(len(self.buffer)), num_to_rank)
         sample_batch = []
@@ -159,12 +167,13 @@ class RewardNetwork(object):
         # batch = random.sample(self.buffer, self.num_to_rank)
         return sample_batch, sample_index
 
-    def distance_sample_buffer(self):
+    def distance_sample_buffer(self, num_to_rank=None):
 
-        if len(self.buffer) < self.num_to_rank:
-            num_to_rank = len(self.buffer)
-        else:
+        if num_to_rank is None:
             num_to_rank = self.num_to_rank
+
+        if len(self.buffer) < num_to_rank:
+            num_to_rank = len(self.buffer)
 
         padded_buffer, buffer_len_list = self.padding(self.buffer)
         buffer_mask = self.make_mask(buffer_len_list)[0]
@@ -242,19 +251,24 @@ class RewardNetwork(object):
             for idx in rank_index:
                 total_reward = sum(self.true_reward_buffer[idx])
 
-                if total_reward/self.episode_length <= -1.5:
-                    rank = 0
-                elif -1.5 < total_reward/self.episode_length <= 0:
-                    rank = 2*(total_reward/self.episode_length+1.5)/1.5
-                elif total_reward > 0:
-                    rank = 2 + 8*(total_reward/self.episode_length)/5
-                    if rank > 10:
-                        rank = 10
+                if self.negative_network_output:
+                    if total_reward/self.episode_length <= -3.2:  # -1.2 -2 -3
+                        rank = 0
+                    else:
+                        rank = ((total_reward/self.episode_length)/3.2 + 1)*10
 
-                if total_reward/self.episode_length <= -3.2:  # -1.2 -2 -3
-                    rank = 0
                 else:
-                    rank = ((total_reward/self.episode_length)/3.2 + 1)*10
+                    if total_reward/self.episode_length <= -1.5:
+                        rank = 0
+                    elif -1.5 < total_reward/self.episode_length <= 0:
+                        rank = 2*(total_reward/self.episode_length+1.5)/1.5
+                    elif total_reward > 0:
+                        rank = 2 + 8*(total_reward/self.episode_length)/5
+                        if rank > 10:
+                            rank = 10
+                #######################################
+                if self.rank_noise > 0:
+                    rank = np.around(rank + np.random.normal(0, self.rank_noise), 2)
                 
                 rank_label.append(rank)
         return rank_label
@@ -300,7 +314,10 @@ class RewardNetwork(object):
         else:
             labels = []
             for rank in rank_list:
-                if rank[0] == rank[1]:
+                #####################################
+                # if rank[0] == rank[1]:
+                if abs(rank[0] - rank[1]) < 0.2:
+                #####################################
                     label_1 = 0.5
                     label_2 = 0.5
                 else:
@@ -353,6 +370,7 @@ class RewardNetwork(object):
             if idx not in index_list:
                 index_list.extend([idx])
 
+
         return index_list
 
     def make_batch(self):
@@ -390,6 +408,9 @@ class RewardNetwork(object):
 
 
     def learn_reward_soft(self):
+
+        acc_ls = []
+        loss_ls = []
 
         for epoch in range(self.epoch):
             self.optimizer.zero_grad()
@@ -446,7 +467,10 @@ class RewardNetwork(object):
             _, predicted_labels = torch.max(acc_rewards.data, 1)
             acc = (predicted_labels == acc_labels).sum().item()/len(predicted_labels)
 
-            return loss, acc
+            acc_ls.append(acc)
+        acc = np.mean(acc_ls)
+
+        return acc
     
 
     
